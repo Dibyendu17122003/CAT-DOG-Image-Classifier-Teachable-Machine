@@ -1,22 +1,16 @@
 import streamlit as st
 import numpy as np
-import tensorflow as tf
+import tflite_runtime.interpreter as tflite
 from PIL import Image
 import time
 from statistics import mean
 
 st.set_page_config(page_title="Cat vs Dog Classifier", page_icon="🐶", layout="centered")
 
-# =========================
-# Config
-# =========================
 UPLOAD_LIMIT = 20
 CAT_LABEL, DOG_LABEL = "Cat", "Dog"
 EMOJIS = {CAT_LABEL: "🐱", DOG_LABEL: "🐶"}
 
-# =========================
-# Styles (Modern + Animations)
-# =========================
 st.markdown("""
 <style>
 :root{
@@ -45,7 +39,6 @@ h1{ color:#fff; text-align:center; margin-bottom:-6px; }
 }
 .upload-box:hover{ border-color: var(--brand); box-shadow: 0 0 0 3px rgba(106,91,255,0.15) inset; }
 
-/* Tweak Streamlit's actual dropzone too */
 div[data-testid="stFileUploaderDropzone"]{
   border-radius: 14px !important;
   background: rgba(255,255,255,0.04) !important;
@@ -129,7 +122,6 @@ div[data-testid="stFileUploaderDropzone"]:hover{
   margin: 6px 0 14px 0;
 }
 
-/* Animated ring gauge */
 .ring-wrap{
   width: 110px; height: 110px; margin: 8px auto 4px auto; position: relative;
 }
@@ -150,23 +142,17 @@ div[data-testid="stFileUploaderDropzone"]:hover{
   stroke: var(--brand);
   stroke-width: 10;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.9s ease; /* smooth animation */
+  transition: stroke-dashoffset 0.9s ease;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# Title
-# =========================
 st.markdown("<h1>🐱🐶 Cat vs Dog Classifier</h1>", unsafe_allow_html=True)
 st.markdown("<p class='sub-text'>Upload multiple images & get instant predictions — premium UI</p>", unsafe_allow_html=True)
 
-# =========================
-# Load Model
-# =========================
 @st.cache_resource
 def load_interpreter():
-    interpreter = tf.lite.Interpreter(model_path="model.tflite")
+    interpreter = tflite.Interpreter(model_path="model.tflite")
     interpreter.allocate_tensors()
     return interpreter
 
@@ -177,9 +163,6 @@ shape = input_details[0]["shape"]
 H = int(shape[1]); W = int(shape[2])
 LABELS = [CAT_LABEL, DOG_LABEL]
 
-# =========================
-# Helpers
-# =========================
 def predict(image: Image.Image):
     if image.mode != "RGB":
         image = image.convert("RGB")
@@ -194,17 +177,12 @@ def predict(image: Image.Image):
     return LABELS[idx], conf * 100
 
 def ring_svg(percent: float) -> str:
-    """
-    Animated circular gauge using SVG.
-    """
-    # circle geometry
     r = 45
     cx, cy = 55, 55
     circumference = 2 * np.pi * r
     pct = max(0, min(100, percent))
     dash = circumference
     offset = circumference * (1 - pct/100.0)
-    # SVG with text centered
     return f"""
     <div class="ring-wrap">
       <svg class="ring" width="110" height="110" viewBox="0 0 110 110">
@@ -217,24 +195,16 @@ def ring_svg(percent: float) -> str:
     </div>
     """
 
-# =========================
-# Session
-# =========================
 if "upload_results" not in st.session_state:
-    st.session_state.upload_results = []   # list of dicts: {img, label, conf, name}
+    st.session_state.upload_results = []
 
-# =========================
-# Upload UI
-# =========================
 st.markdown("<div class='upload-box'>📤 Drag & drop images or click to browse</div>", unsafe_allow_html=True)
 files = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True)
 
-# Upload limit
 if files and len(files) > UPLOAD_LIMIT:
     st.warning(f"⚠ You selected {len(files)} files. Only the first {UPLOAD_LIMIT} will be processed.")
     files = files[:UPLOAD_LIMIT]
 
-# Buttons row (Predict left, Clear right)
 left, right = st.columns([5,1])
 with left:
     if files:
@@ -254,11 +224,7 @@ with right:
         st.session_state.upload_results = []
         st.experimental_rerun()
 
-# =========================
-# Summary + Options
-# =========================
 if st.session_state.upload_results:
-    # Summary stats
     confs = [r["conf"] for r in st.session_state.upload_results]
     labels = [r["label"] for r in st.session_state.upload_results]
     total = len(confs)
@@ -269,7 +235,6 @@ if st.session_state.upload_results:
     best_conf = confs[best_idx]
     avg_conf = mean(confs) if confs else 0.0
 
-    # Dashboard
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown("<div class='summary-card'><b>Total Images</b><br><h3 style='margin:6px 0;'>"
@@ -284,14 +249,12 @@ if st.session_state.upload_results:
         st.markdown("<div class='summary-card'><b>Avg Confidence</b><br><h3 style='margin:6px 0;'>"
                     f"{avg_conf:.2f}%</h3></div>", unsafe_allow_html=True)
 
-    # Best result callout
     st.markdown(
         f"<div class='summary-card' style='margin-top:8px;'>"
         f"<b>Highest Confidence</b>: {best_conf:.2f}% ({best_label} {EMOJIS[best_label]})"
         f"</div>", unsafe_allow_html=True
     )
 
-    # Sorting / Filtering row
     with st.container():
         st.markdown("<div class='sort-row'>", unsafe_allow_html=True)
         colsf = st.columns([1.5, 2, 2, 3])
@@ -305,7 +268,6 @@ if st.session_state.upload_results:
             st.caption("Tip: Use ‘Highest confidence’ to surface your best predictions.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Apply sort/filter
     results = list(st.session_state.upload_results)
     if filter_mode == "Only Cats":
         results = [r for r in results if r["label"] == CAT_LABEL]
@@ -315,9 +277,6 @@ if st.session_state.upload_results:
     if sort_mode == "Highest confidence":
         results = sorted(results, key=lambda r: r["conf"], reverse=True)
 
-    # =========================
-    # Results Grid
-    # =========================
     cols = st.columns(3)
     for i, r in enumerate(results):
         img, label, conf, name = r["img"], r["label"], r["conf"], r["name"]
@@ -327,10 +286,7 @@ if st.session_state.upload_results:
         with cols[i % 3]:
             st.markdown(f'<div class="image-card {glow_class}">', unsafe_allow_html=True)
             st.image(img, use_column_width=True)
-
-            # Animated ring gauge (Style 3)
             st.markdown(ring_svg(conf), unsafe_allow_html=True)
-
             st.markdown(
                 f"<span class='result-pill'>{EMOJIS[label]} {label}</span>",
                 unsafe_allow_html=True
@@ -338,9 +294,6 @@ if st.session_state.upload_results:
             st.markdown(f"<div class='meta'>File: {name}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# Model Info (collapsible)
-# =========================
 with st.expander("ℹ️ Model details"):
     st.markdown(
         f"""
